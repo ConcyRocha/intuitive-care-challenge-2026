@@ -16,3 +16,7 @@ Thumbs.db
 
 # Dados brutos 
 data/raw/*.zip
+
+# Ignorar dados processados grandes
+data/processed/*.csv
+!data/processed/.gitkeep
