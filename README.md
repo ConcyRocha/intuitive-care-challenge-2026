@@ -197,6 +197,7 @@ Como resultado, o pipeline gerou dois arquivos distintos na pasta `processed`:
 * `despesas_rejeitadas.csv`: Dados impuros para análise de causa raiz.
 
 ![Arquivos Separados](assets/image9.png)
+
 *Figura 7: Visualização da pasta `processed` mostrando a aplicação do padrão de separação.
 
 ## 2.2. Enriquecimento de Dados com Tratamento de Falhas
@@ -231,4 +232,82 @@ O script carrega as despesas válidas, baixa o cadastro atualizado e realiza o c
 Amostra do arquivo final demonstrando as novas colunas (`Modalidade`, `RegistroANS`, `UF`) integradas corretamente ao dataset financeiro:
 
 ![CSV Final Enriquecido](assets/image11.png)
-*Figura 11: Amostra do dataset final enriquecido com as colunas UF, Modalidade e RegistroANS.*
+*Figura 11: Amostra dos dados enriquecido com as colunas UF, Modalidade e RegistroANS.*
+
+## 2.3. Agregação Analítica e Entrega Final
+
+Nesta  etapa, foi transformados os dados transacionais em informações gerenciais, agrupando despesas por Operadora e UF para identificar os maiores players e sua estabilidade financeira.
+
+**Comando para execução:**
+```bash
+python backend/stage_2_3_aggregation.py
+````
+
+###  Métricas Calculadas
+
+Para cada Operadora/UF, calculamos:
+
+* **Total de Despesas:** Volume financeiro total no período.
+* **Média Trimestral:** Valor médio dos lançamentos.
+* **Desvio Padrão:** Mede a volatilidade. Operadoras com desvio alto têm gastos muito irregulares; desvio baixo indica custos constantes.
+
+### Trade-off Técnico: Estratégia de Ordenação
+
+Para cumprir o requisito de ordenar os dados pelo "Valor Total" (do maior para o menor), foi necessário escolher um algoritmo de ordenação (Sorting).
+
+| Estratégia | Complexidade | Decisão |
+| :--- | :--- | :--- |
+| **In-Memory Sort (TimSort/QuickSort)** | **O(N log N)** | **[ESCOLHIDA]** O Pandas utiliza o *TimSort* (derivado do Merge Sort e Insertion Sort) por padrão. Como o dados agregado resultou em menos de 10.000 linhas (após o Group By), essa operação é instantânea (< 0.1s) e altamente eficiente em CPU. |
+| **External Merge Sort** | O(N log N) (I/O Bound) | **Descartada.** Seria necessária apenas se o volume de dados agregados excedesse a memória RAM (ex: bilhões de linhas), o que não é o caso deste teste. |
+| **Database Indexing** | O(N) (Se indexado) | **Descartada.** Carregar os dados num banco SQL apenas para ordenar adicionaria latência de rede e complexidade de infraestrutura desnecessária para um script ETL standalone. |
+
+###  Artefato Final (Entrega)
+
+O script gera automaticamente o arquivo compactado conforme solicitado nas instruções do teste:
+
+* **Arquivo:** `Teste_ConceicaoRocha.zip`
+* **Conteúdo:** `despesas_agregadas.csv` (Ordenado e consolidado).
+* **Localização:** Raiz do projeto.
+
+## 3. Teste de Banco de Dados e Análise SQL
+
+Nesta etapa, foi estruturado um banco de dados relacional para armazenar os dados processados e executar análises.
+
+### 3.1 & 3.2. Modelagem de Dados (DDL)
+
+Os scripts de criação de tabelas estão disponíveis em `sql/1_schema_ddl.sql`.
+
+**Decisões de Arquitetura (Trade-offs):**
+
+* **Normalização (Opção B - Escolhida):**
+    * Adotamos o modelo **Star Schema** simplificado, separando `fact_despesas` (Fatos) e `dim_operadoras` (Dimensão).
+    * *Motivo:* Reduz redundância de armazenamento (o endereço da operadora não se repete milhões de vezes) e facilita a atualização cadastral sem travar a tabela de despesas (fatos).
+* **Tipos de Dados:**
+    * **Valores Monetários:** Utilizamos `DECIMAL(15,2)` ao invés de `FLOAT`. *Justificativa:* Sistemas financeiros exigem precisão exata; `FLOAT` pode gerar erros de arredondamento de centavos.
+    * **Datas:** Utilizamos `DATE` (ISO 8601) para permitir funções temporais nativas do SQL.
+
+### 3.3. Estratégia de Importação e Tratamento (ETL)
+
+Para a ingestão dos dados (Item 3.3), optou-se por um pipeline **Python (Pandas) + SQL Alchemy** em vez de comandos SQL brutos (`COPY`).
+
+**Análise Crítica de Inconsistências:**
+Durante a ingestão, o script `backend/stage_3_db_test.py` trata automaticamente:
+1.  **Datas Inconsistentes:** Converte colunas separadas de "Ano/Trimestre" em datas válidas (`YYYY-MM-01`).
+2.  **Strings em Numéricos:** Remove caracteres de moeda e converte para `Float/Decimal` antes da inserção.
+3.  **Valores NULL:** Preenchimento de valores nulos em métricas financeiras com `0.0` para não quebrar agregações (`SUM/AVG`).
+
+### 3.4. Resultados das Queries Analíticas
+
+As queries desenvolvidas em `sql/2_queries_analytics.sql` foram executadas com sucesso. Abaixo as evidências:
+
+**Query 1: Top 5 Operadoras com Maior Crescimento (%)**
+Identifica operadoras que tiveram explosão de custos entre o primeiro e o último trimestre analisado.
+![Resultado Query 1](assets/query1.png)
+
+**Query 2: Distribuição Geográfica de Despesas**
+Lista os estados com maior volume financeiro e a média de custo por lançamento.
+![Resultado Query 2](assets/query2.png)
+
+**Query 3: Operadoras Acima da Média de Mercado**
+Filtra operadoras que gastaram mais que a média global em pelo menos 2 trimestres distintos.
+![Resultado Query 3](assets/query3.png)
