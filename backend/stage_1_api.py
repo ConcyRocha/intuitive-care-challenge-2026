@@ -11,7 +11,18 @@ MAX_RECURSION_DEPTH = 2
 
 
 def get_soup(url):
-    """Retorna o objeto BeautifulSoup de uma URL, tratando erros."""
+    """
+    Realiza uma requisição HTTP GET e retorna o objeto BeautifulSoup parseado.
+
+    Gerencia exceções de conexão e timeout para evitar quebra do pipeline.
+
+    Args:
+        url (str): A URL alvo para raspagem.
+
+    Returns:
+        BeautifulSoup: Objeto pronto para extração de tags, ou None se 
+        houver erro.
+    """
     try:
         response = requests.get(url, timeout=30)
         response.raise_for_status()
@@ -23,11 +34,21 @@ def get_soup(url):
 
 def parse_quarter_from_filename(filename):
     """
-    Extrai Ano e Trimestre do nome do arquivo usando Regex.
-    Suporta: '1T2025.zip', '2008_1_trimestre.zip', '3t_24.zip'
+    Extrai metadados temporais (Ano e Trimestre) do nome do arquivo usando Regex.
+
+    Suporta múltiplos padrões de nomenclatura da ANS:
+    - Conciso: '1T2025.zip'
+    - Extenso: '2008_1_trimestre.zip'
+    - Curto: '3t_24.zip'
+
+    Args:
+        filename (str): Nome do arquivo (ex: '1T2025.zip').
+
+    Returns:
+        tuple: Uma tupla (ano: int, trimestre: int) ou None se não 
+        casar padrão.
     """
     filename = filename.lower()  
-    # Padrão atual: 1t2025, 3t24
     match_modern = re.search(r'(\d)t(\d{2,4})', filename)
     if match_modern:
         quarter = int(match_modern.group(1))
@@ -35,7 +56,6 @@ def parse_quarter_from_filename(filename):
         year = int(year_raw) if len(year_raw) == 4 else int(f"20{year_raw}")
         return year, quarter
 
-    # Padrão Antigo/Verbos: 2008_1_trimestre
     match_verbose = re.search(r'(\d{4})_(\d)_trim', filename)
     if match_verbose:
         year = int(match_verbose.group(1))
@@ -47,10 +67,20 @@ def parse_quarter_from_filename(filename):
 
 def crawl_for_zips(url, current_depth=0):
     """
-    Função RECURSIVA que varre a URL e suas subpastas em busca de ZIPs.
+    Varre recursivamente a URL e subdiretórios em busca de arquivos .zip.
+
+    Utiliza recursão controlada (MAX_RECURSION_DEPTH) para navegar na estrutura
+    de pastas do servidor FTP/HTTP da ANS sem entrar em loops infinitos.
+
+    Args:
+        url (str): URL atual para inspeção.
+        current_depth (str): Profundidade atual da recursão (padrão 0).
+
+    Returns:
+        list: Lista de dicionários contendo metadados {'year', 'quarter', 
+        'filename', 'url'}.
     """
     found_files = [] 
-    # Para de cavar se atingir o limite de profundidade
     if current_depth > MAX_RECURSION_DEPTH:
         return found_files
 
@@ -58,17 +88,14 @@ def crawl_for_zips(url, current_depth=0):
     if not soup:
         return found_files
 
-    # Itera sobre todos os links da página
     for a_tag in soup.find_all('a', href=True):
         href = a_tag['href']     
-        # Ignora links de navegação do servidor (Parent Directory, Ordenação)
         if href in ['../', './'] or href.startswith('?') or href.startswith('/'):
             continue
 
         full_url = urljoin(url, href)
         filename = href.strip("/")
 
-        # CASO 1: É um arquivo ZIP?
         if href.lower().endswith('.zip'):
             meta = parse_quarter_from_filename(filename)
             if meta:
@@ -80,7 +107,6 @@ def crawl_for_zips(url, current_depth=0):
                     "url": full_url
                 })
         
-        # CASO 2: É uma subpasta
         elif href.endswith('/'):
             print(f"   [Recursão Nível {current_depth+1}]"
                   f" Entrando na pasta: {filename}")
@@ -91,24 +117,31 @@ def crawl_for_zips(url, current_depth=0):
 
 
 def main():
+    """
+    Pipeline de Extração (Etapa 1.1).
+
+    Fluxo de Execução:
+    1. Acessa a raiz do repositório da ANS.
+    2. Identifica pastas de Anos (ex: '2025/', '2024/').
+    3. Varre os 3 anos mais recentes buscando ZIPs recursivamente.
+    4. Seleciona apenas os 3 trimestres cronologicamente mais novos.
+    5. Realiza o download dos arquivos selecionados para 'data/raw'.
+    """
     print(">>> Iniciando Etapa 1.1: Coleta Resiliente e Recursiva")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 1. Identificar Anos Disponíveis 
     print(f"Acessando Raiz: {BASE_URL}...")
     soup = get_soup(BASE_URL)  
     if not soup:
         print("Erro crítico: Não foi possível acessar a URL base.")
         return
 
-    # Lista preliminar de anos
     years_found = []
     for a in soup.find_all('a', href=True):
         clean_href = a['href'].strip("/")
         if re.match(r"^\d{4}$", clean_href):
             full_url = urljoin(BASE_URL, a['href'])
             years_found.append((int(clean_href), full_url)) 
-    # Ordena decrescente (mais recentes primeiro)
     years_found.sort(key=lambda x: x[0], reverse=True)
 
     if not years_found:
@@ -116,16 +149,12 @@ def main():
         return
 
     all_candidates = []
-    # Top 3 anos para garantir os 3 últimos tri
     print(f"Varrendo os anos mais recentes: {[y[0] for y in years_found[:3]]}") 
     for year_val, year_url in years_found[:3]:
         print(f"\nVerificando ano: {year_val}...")
-        # Chama a função que lida com pastas 
         files_in_year = crawl_for_zips(year_url)
         all_candidates.extend(files_in_year)
 
-    # 3. Filtrar os top 3 cronológicos
-    # Ordena: Ano (Crescente) -> Trimestre (Crescente)
     all_candidates.sort(key=lambda x: (x['year'], x['quarter']))
     last_3_quarters = all_candidates[-3:]
 
@@ -137,7 +166,6 @@ def main():
     for item in last_3_quarters:
         print(f" -> {item['year']} / {item['quarter']}º Tri: {item['filename']}")
 
-    # 4. Download
     print("\n>>> Iniciando Downloads...")
     for item in last_3_quarters:
         filepath = os.path.join(OUTPUT_DIR, item['filename']) 

@@ -4,6 +4,37 @@
 
 Este repositório contém a solução do teste prático para a vaga de estágio na **Intuitive Care**. O objetivo deste projeto foi ir além do funcionamento básico: apliquei conceitos de Engenharia de Dados para criar automação robusta, escalável e documentada, pronta para lidar com cenários reais de variação de dados
 
+### 📐 Arquitetura da Solução
+
+Fluxo de dados 
+
+```mermaid
+graph TD
+    %% Nós do Grafo
+    ANS[Portal de Dados Abertos ANS] -->|Scraping| S1[Stage 1.1: Coleta]
+    S1 -->|ZIP Files| RAW[(Data Raw)]
+    
+    RAW -->|Extração Incremental| S2[Stage 1.2: Processamento]
+    
+    subgraph ETL [Pipeline de Transformação]
+        S2 -->|Detecta Formato| CLEAN{Limpeza}
+        CLEAN -->|UTF-8/Latin1| NORM[Normalização de Schema]
+        NORM -->|Float Conversion| CONSOL[Consolidação]
+    end
+    
+    CONSOL -->|CSV Único| PROCESSED[(Data Processed)]
+    
+    PROCESSED -->|Chunk Load| S3[Stage 2: Carga SQL]
+    S3 -->|Insert| DB[(Banco de Dados SQL)]
+
+    %% Estilização (Opcional, deixa colorido)
+    style ANS fill:#f9f,stroke:#333,stroke-width:2px
+    style DB fill:#bbf,stroke:#333,stroke-width:2px
+    style ETL fill:#e1f5fe,stroke:#01579b,stroke-dasharray: 5 5
+
+```
+
+
 ## 1. Preparação do Ambiente
 
 Para garantir a reprodutibilidade do teste e manter o sistema global organizado, a solução utiliza um ambiente virtual isolado.
@@ -25,12 +56,12 @@ Para garantir a reprodutibilidade do teste e manter o sistema global organizado,
 
 * **macOS/Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ---
 
-## 2. Etapa 1.1: Integração com API Pública da ANS
+## Etapa 1.1: Integração com API Pública da ANS
 
 O objetivo desta etapa é acessar a API de Dados Abertos da ANS e realizar o download das **Demonstrações Contábeis** dos últimos 3 trimestres disponíveis.
 
@@ -69,12 +100,12 @@ A execução do script `stage_1_api.py` realizou a varredura recursiva no servid
 
 Esta etapa é responsável por processar os arquivos brutos (ZIPs), normalizar as discrepâncias e consolidar os dados para análise.
 
-### 1. Decisão de Arquitetura: Processamento Incremental
+### 1.2.1 Decisão de Arquitetura: Processamento Incremental
 Para garantir performance e estabilidade, optei por uma abordagem de **Batch Processing Incremental** ao invés de carregar todos os dados em memória (*In-Memory*).
 
 * **Implementação:** O script processa um arquivo ZIP por vez (extração -> transformação -> carga -> limpeza temporária).
 * **Justificativa (Trade-off):** Optei por processar os dados aos poucos (incrementalmente) em vez de carregar tudo de uma vez, garantimos a estabilidade do sistema. Essa abordagem impede que a memória acabe (erro de memória cheia), permitindo que o script processe volumes gigantescos de dados sem falhar, mesmo em máquinas com pouca potência.
-### 2. Estratégia de Normalização (Data Wrangling)
+### 1.2.2 Estratégia de Normalização (Data Wrangling)
 Para atender ao desafio de **variedade de formatos** (CSV, TXT, colunas inconsistentes) e **evolução de schema**, implementei uma camada de adaptação semântica:
 
 * **Ingestão Polimórfica:** O pipeline detecta automaticamente a extensão e aplica estratégias de *fallback* para diferentes encodings (`latin1` vs `utf-8`) e separadores (`;` vs `,`), garantindo a leitura correta tanto de arquivos legados quanto modernos.
@@ -83,7 +114,7 @@ Para atender ao desafio de **variedade de formatos** (CSV, TXT, colunas inconsis
     * **Resiliência:** Colunas essenciais ausentes nos arquivos mais antigos são geradas com valores nulos (`None`), mantendo a integridade da estrutura final.
 * **Sanitização de Tipos:** Conversão robusta de valores monetários no formato brasileiro (ex: `"1.000,00"`) para floats computáveis (`1000.0`).
 
-### 3. Resultados da Execução
+### 1.2.3 Resultados da Execução
 O pipeline foi capaz de processar e unificar os dados dos 3 trimestres com sucesso.
 
 * **Volume Processado:** **2.113.924 registros** consolidados.
@@ -96,3 +127,108 @@ O pipeline foi capaz de processar e unificar os dados dos 3 trimestres com suces
 **Amostra dos Dados Consolidados:**
 ![Preview do Arquivo CSV](assets/image5.png)
 *Figura 4: Visualização da estrutura do arquivo `despesas_consolidadas.csv`, demonstrando a unificação das colunas e a identificação da origem dos dados.*
+
+## Etapa 1.3. Consolidação e Análise de Inconsistências
+
+Esta etapa realiza o enriquecimento dos dados através do cruzamento com a base cadastral `Relatorio_cadop.csv`. **Este passo foi fundamental pois os arquivos originais das demonstrações contábeis não contêm o CNPJ (apenas o Registro ANS)**. Além disso, o script aplica limpeza e padronização de dados.
+
+**Comando para execução:**
+```bash
+python backend/stage_1_3_analysis.py
+```
+### 1.3.1 Análise Crítica e Tratamento de Dados (Data Quality)
+
+Durante o processo de consolidação, foram identificadas inconsistências nativas dos dados da ANS. Abaixo, detalho as tratativas aplicadas e suas justificativas técnicas:
+
+| Inconsistência Identificada | Tratativa Aplicada | Justificativa da Abordagem |
+| :--- | :--- | :--- |
+| **CNPJs Duplicados** | **Normalização:** Criado um mapa de `1 CNPJ -> 1 Razão Social` (baseado no registro mais recente/disponível). | Empresas alteram a razão social, mas mantêm o CNPJ. A normalização é obrigatória para evitar a quebra de linhas em agrupamentos (Group By). |
+| **Valores Zerados** | **Remoção:** Linhas com `vl_saldo_final == 0` foram excluídas. | No plano de contas, operadoras enviam a estrutura completa, mesmo sem movimentação. Manter zeros apenas infla o armazenamento sem agregar valor. |
+| **Valores Negativos** | **Mantidos:** Valores menores que zero foram preservados. | Contabilmente, despesas negativas representam estornos, glosas ou ajustes de crédito. Remover esses dados geraria um saldo final incorreto. |
+| **Formatos de Data** | **Padronização via Regex:** Extração direta dos dígitos de Ano e Trimestre do nome do arquivo. | Ignoramos a formatação textual (que variava entre `1T2025`, `2025_01`) e forçamos a tipagem para Inteiro (`Int64`), facilitando ordenação. |
+
+### 1.3.2 Resultados da Execução
+
+**1. Log de Execução e Enriquecimento:**
+O script contornou as proteções de download da ANS (usando User-Agent), detectou automaticamente o encoding correto e realizou a limpeza dos nomes das colunas (removendo caracteres ocultos/BOM) para garantir o merge perfeito:
+
+![Log de Execução](assets/image6.png)
+*Figura 5: Visualização da saida esperada com o zip `despesas_consolidadas.zip` criado.
+
+## Etapa 2 Teste de transformação de dados
+
+### Execução do Script
+O script de coleta está localizado na pasta `backend`:
+```bash
+python backend/stage_2_1_validation.py
+```
+## 2.1 Validação de dados com estratégias diferentes
+
+O script aplica três regras de negócio rigorosas sobre o dataset consolidado:
+
+* **CNPJ:** Validação matemática dos dígitos verificadores (algoritmo Módulo 11 da Receita Federal), e não apenas validação de formato/máscara.
+* **Financeiro:** Filtro estrito para valores positivos (`> 0`). Valores zerados ou negativos são segregados.
+* **Completude:** Rejeição de registros sem Razão Social identificada.
+
+### Trade-off Técnico: Tratamento de CNPJs Inválidos
+
+**Estratégia Escolhida: Segregação (Pattern: Valid & Invalid Sinks)**
+Optei por separar o fluxo de dados em dois destinos: um arquivo para dados confiáveis e outro para dados rejeitados.
+
+**Justificativa da Decisão:**
+Ao direcionar as falhas para um arquivo `despesas_rejeitadas.csv` contendo o motivo do erro, garantimos:
+
+1.  **Rastreabilidade:** Nenhuma informação fiscal é perdida.
+2.  **Continuidade:** O pipeline não para por causa de dados ruins.
+3.  **Auditoria:** O arquivo de rejeitados serve como insumo para que a equipe de negócios ou TI corrija os dados na fonte.
+
+### Resultados da Execução
+
+**1. Log de Validação (Terminal):**
+O script processou mais de 600 mil registros. Note que cerca de **70.000 registros foram rejeitados** (a maioria devido à regra estrita de valores positivos/zerados solicitada no teste e validação matemática de CNPJ), demonstrando a eficácia do filtro.
+
+![Log de Validação](assets/image8.png)
+*Figura 6: Terminal exibindo o resumo estatístico da validação e a contagem de registros rejeitados.*
+
+**2. Segregação dos Arquivos (Sink):**
+Como resultado, o pipeline gerou dois arquivos distintos na pasta `processed`:
+
+* `despesas_validas.csv`: Dados limpos e prontos para uso.
+* `despesas_rejeitadas.csv`: Dados impuros para análise de causa raiz.
+
+![Arquivos Separados](assets/image9.png)
+*Figura 7: Visualização da pasta `processed` mostrando a aplicação do padrão de separação.
+
+## 2.2. Enriquecimento de Dados com Tratamento de Falhas
+
+Esta etapa finaliza a preparação dos dados adicionando contexto geográfico (`UF`) e categorização de negócio (`Modalidade`) ao dataset validado.
+
+**Comando para execução:**
+```bash
+python backend/stage_2_2_enrichment.py
+````
+### Estratégia de Processamento e Join
+
+Para cruzar as despesas com o cadastro das operadoras, utilizei as seguintes estratégias técnicas:
+
+| Desafio | Solução Adotada | Justificativa |
+| :--- | :--- | :--- |
+| **Arquitetura de Processamento** | **Pandas In-Memory** | O volume total (~600k linhas) cabe confortavelmente na memória RAM (consumo estimado < 200MB). Ferramentas distribuídas (Spark) adicionariam complexidade desnecessária para este volume ("Small Data"). |
+| **Registros sem Match** | **Left Join** | Priorizamos as despesas. Se uma operadora tem despesas mas não está no cadastro ativo (ex: faliu ou mudou de status), mantemos o registro financeiro e preenchemos a UF como "Não Informado". O Inner Join causaria perda de dados contábeis. |
+| **Duplicidade no Cadastro** | **Deduplicação Prévia** | O cadastro da ANS pode conter histórico. Antes do join, aplicamos `drop_duplicates(subset='CNPJ')` para garantir uma relação 1:1. Isso impede a "explosão de linhas" (Cartesian Product) no resultado final. |
+
+### 📦 Resultado Final
+
+O arquivo `data/processed/dataset_final_enriquecido.csv` representa a **"Gold Layer"** deste pipeline: dados limpos, validados e enriquecidos, prontos para visualização em Dashboards ou ingestão em Banco de Dados.
+
+**1. Log de Execução (Enriquecimento):**
+O script carrega as despesas válidas, baixa o cadastro atualizado e realiza o cruzamento (Left Join):
+
+![Log de Enriquecimento](assets/image10.png)
+*Figura 10: Log do terminal demonstrando o download do cadastro, a deduplicação de CNPJs e o sucesso do Left Join.*
+
+**2. Dataset Final (Gold Layer):**
+Amostra do arquivo final demonstrando as novas colunas (`Modalidade`, `RegistroANS`, `UF`) integradas corretamente ao dataset financeiro:
+
+![CSV Final Enriquecido](assets/image11.png)
+*Figura 11: Amostra do dataset final enriquecido com as colunas UF, Modalidade e RegistroANS.*

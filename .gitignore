@@ -6,6 +6,7 @@ env/
 # Arquivos temporários do Python
 __pycache__/
 *.py[cod]
+*.log
 
 # Arquivos de sistema (Mac/Windows)
 .DS_Store
@@ -13,10 +14,24 @@ Thumbs.db
 
 # Configurações de IDE
 .vscode/
+.idea/
 
 # Dados brutos 
 data/raw/*.zip
+data/raw/*.csv
+!data/raw/.gitkeep
 
-# Ignorar dados processados grandes
+# Dados processados 
 data/processed/*.csv
 !data/processed/.gitkeep
+
+# Ignorar pastas temporárias de extração (se houver)
+data/temp/
+data/temp_extract/
+
+# Ignorar Artefatos Finais
+*.zip
+
+# Ignorar banco de dados locais (SQLite)
+*.sqlite3
+*.db
