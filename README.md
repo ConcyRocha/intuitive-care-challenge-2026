@@ -311,3 +311,97 @@ Lista os estados com maior volume financeiro e a média de custo por lançamento
 **Query 3: Operadoras Acima da Média de Mercado**
 Filtra operadoras que gastaram mais que a média global em pelo menos 2 trimestres distintos.
 ![Resultado Query 3](assets/query3.png)
+
+## 4. Teste de API e Interface Web (Aplicação Final)
+
+Nesta etapa, os dados processados foram adicioandos a uma aplicação Full Stack funcional, composta por uma API Python de alta performance e um Dashboard interativo.
+
+### 🛠️ Instalação e Execução (Etapa 4)
+
+Para rodar a API e o Site, você precisa das bibliotecas do FastAPI e do servidor Uvicorn.
+
+**1. Instale as dependências:**
+```bash
+pip install fastapi uvicorn sqlalchemy pydantic
+
+```
+**2. Execute o Servidor:**
+Certifique-se de estar na raiz do projeto e rode:
+```bash
+python backend/api.py
+```
+**3. Acesse a Aplicação:**
+* 🖥️ **Dashboard (Frontend):** [http://127.0.0.1:8000/app](http://127.0.0.1:8000/app)
+* 📄 **Documentação (Swagger):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+---
+
+### 🏛️ Arquitetura da Solução
+
+O sistema segue o padrão **SPA (Single Page Application)**, onde o Frontend consome dados via REST API.
+
+**Fluxo da Aplicação:**
+1. **Frontend (Vue.js):** O usuário interage com a interface; o Axios intercepta e envia requisições HTTP.
+2. **API (FastAPI):** Recebe a requisição, valida os tipos (Pydantic) e consulta o banco SQLite.
+3. **Banco de Dados:** Retorna os dados relacionais tratados.
+4. **Visualização:** O Vue.js atualiza o DOM reativamente (Tabela e Gráficos) sem recarregar a página.
+
+
+---
+
+### 4.1 & 4.2. Backend (FastAPI)
+
+Desenvolvemos uma API RESTful utilizando **FastAPI**. O servidor expõe rotas para listagem, detalhes e estatísticas.
+
+**Decisões de Arquitetura (Trade-offs):**
+
+* **Framework: FastAPI vs Flask**
+    * *Decisão:* **FastAPI**.
+    * *Justificativa:* Suporte nativo a concorrência (ASGI) para maior performance em leitura de banco de dados e geração automática de documentação (Swagger), agilizando o desenvolvimento e testes.
+
+* **Paginação: Offset-based**
+    * *Decisão:* Parâmetros `page` e `limit`.
+    * *Justificativa:* Essencial para dashboards administrativos ("Backoffice"), permitindo ao usuário ver o total de registros e pular para páginas específicas, algo difícil com paginação baseada em cursor.
+
+* **Processamento de Estatísticas**
+    * *Decisão:* Cálculo em **Real-time (SQL)**.
+    * *Justificativa:* O volume de dados atual permite respostas em milissegundos via SQLite. Implementar cache (Redis) neste estágio adicionaria complexidade de infraestrutura desnecessária (*Overengineering*).
+
+**Evidência de Funcionamento (Swagger UI):**
+![Documentação Swagger](assets/image13.png)
+*Figura 12: Interface do Swagger UI gerada automaticamente, listando todas as rotas disponíveis para teste.*
+
+---
+
+### 4.3. Interface Web (Vue.js)
+
+O Frontend foi construído com **Vue.js 3 (Composition API)** e estilizado com **Tailwind CSS**.
+
+**Funcionalidades e UX:**
+* **Busca Server-side:** A filtragem ocorre no backend (`WHERE LIKE`), garantindo que o navegador do usuário não trave ao tentar processar milhares de registros localmente.
+* **Feedback Visual:** Implementação de *Loading Spinners* (para aguardar a resposta da API) e *Empty States* (telas amigáveis quando a busca não retorna dados).
+* **Tratamento de Erros:** Mensagens visuais na interface caso a API esteja offline, evitando o uso de `alert()` intrusivos.
+
+**Evidência do Dashboard (Listagem):**
+![Dashboard Vue.js - Listagem](assets/image14.png)
+*Figura 13:Tela principal do Dashboard exibindo a tabela paginada e o campo de busca com filtro ativo.*
+
+**Evidência do Dashboard (Gráficos):**
+![Dashboard Vue.js - Gráficos](assets/image15.png)
+*Figura 14: IAba de estatísticas apresentando KPIs financeiros e gráfico de barras com a distribuição de despesas por U.*
+
+---
+
+### 4.4. Testes e Validação (Postman)
+
+Todas as rotas foram validadas externamente para garantir a integridade da API. A coleção de testes está incluída no repositório (`teste_intu.postman_collection.json`).
+
+**Rotas Testadas:**
+1. `GET /api/operadoras` (Listagem Paginada)
+2. `GET /api/operadoras/{cnpj}` (Detalhes da Operadora)
+3. `GET /api/operadoras/{cnpj}/despesas` (Histórico Financeiro)
+4. `GET /api/estatisticas` (KPIs e Gráficos)
+
+**Evidência de Teste com Sucesso (Status 200 OK):**
+![Teste Postman](assets/image16.png)
+*Figura 15: Validação da rota de listagem no Postman, retornando Status 200 OK e o JSON estruturado corretamente*

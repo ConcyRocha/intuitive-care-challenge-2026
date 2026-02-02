@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel ANS - Despesas Operadoras</title>
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-100 font-sans">
+    
+    <div id="app" class="container mx-auto p-6" v-cloak>
+        
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-blue-800">📊 Portal de Transparência ANS</h1>
+            <p class="text-gray-600">Monitoramento de despesas de operadoras de planos de saúde</p>
+        </header>
+
+        <div class="flex space-x-4 mb-6">
+            <button @click="currentTab = 'list'" :class="tabClass('list')">Listagem</button>
+            <button @click="loadStats" :class="tabClass('stats')">Dashboard & Estatísticas</button>
+        </div>
+
+        <div v-if="currentTab === 'list'" class="bg-white p-6 rounded shadow min-h-[400px]">
+            
+            <div class="flex gap-2 mb-6">
+                <div class="relative flex-1">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </span>
+                    
+                    <input v-model="searchQuery" @keyup.enter="fetchOperadoras(1)" 
+                           type="text"
+                           placeholder="Buscar por Razão Social ou CNPJ..." 
+                           class="w-full py-2 pl-10 pr-10 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                    
+                    <button v-if="searchQuery" @click="limparBusca" 
+                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-red-500"
+                            title="Limpar busca">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+                
+                <button @click="fetchOperadoras(1)" class="bg-blue-600 text-white px-6 py-2 rounded font-medium hover:bg-blue-700 transition-colors shadow-sm">
+                    Buscar
+                </button>
+            </div>
+
+            <div v-if="errorMsg" class="bg-red-50 text-red-700 p-4 rounded mb-4 border-l-4 border-red-500 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {{ errorMsg }}
+            </div>
+
+            <div v-if="loading" class="flex flex-col items-center justify-center py-12 text-gray-500">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-3"></div>
+                <p>Carregando dados da ANS...</p>
+            </div>
+
+            <div v-else-if="operadoras.length > 0">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm uppercase tracking-wider">
+                                <th class="p-4 border-b font-semibold">CNPJ</th>
+                                <th class="p-4 border-b font-semibold">Razão Social</th>
+                                <th class="p-4 border-b font-semibold">UF</th>
+                                <th class="p-4 border-b font-semibold text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            <tr v-for="op in operadoras" :key="op.cnpj" class="hover:bg-blue-50 transition-colors">
+                                <td class="p-4 text-gray-600 font-mono text-sm">{{ op.cnpj }}</td>
+                                <td class="p-4 font-medium text-gray-800">{{ op.razao_social }}</td>
+                                <td class="p-4 text-gray-600">
+                                    <span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold">{{ op.uf }}</span>
+                                </td>
+                                <td class="p-4 text-right">
+                                    <button @click="openDetails(op)" class="text-blue-600 hover:text-blue-800 font-medium text-sm flex items-center justify-end ml-auto gap-1">
+                                        Ver Detalhes
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="flex flex-col sm:flex-row justify-between items-center mt-6 pt-4 border-t border-gray-100">
+                    <span class="text-sm text-gray-500 mb-4 sm:mb-0">
+                        Mostrando página <span class="font-bold text-gray-800">{{ page }}</span> de {{ totalPages }} 
+                        <span class="mx-1">|</span> Total: {{ totalItems }} registros
+                    </span>
+                    <div class="flex space-x-2">
+                        <button @click="fetchOperadoras(page - 1)" :disabled="page <= 1" 
+                                class="px-4 py-2 border border-gray-300 rounded text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Anterior
+                        </button>
+                        <button @click="fetchOperadoras(page + 1)" :disabled="page >= totalPages" 
+                                class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors">
+                            Próxima
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else class="text-center py-16 px-4">
+                <div class="bg-gray-50 rounded-full h-20 w-20 flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-1">Nenhum resultado encontrado</h3>
+                <p class="text-gray-500 max-w-sm mx-auto mb-6">
+                    Não encontramos operadoras com o termo <span class="font-bold">"{{ searchQuery }}"</span>.
+                    Verifique a grafia ou tente buscar pelo CNPJ completo.
+                </p>
+                <button @click="limparBusca" class="text-blue-600 hover:underline font-medium">
+                    Limpar filtro e ver tudo
+                </button>
+            </div>
+        </div>
+
+        <div v-if="currentTab === 'stats'" class="bg-white p-6 rounded shadow">
+            <h2 class="text-xl font-bold mb-4">Visão Geral do Mercado</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="space-y-4">
+                    <div class="bg-blue-50 p-4 rounded border-l-4 border-blue-500">
+                        <h3 class="text-sm text-gray-500">Despesa Total Acumulada</h3>
+                        <p class="text-2xl font-bold">R$ {{ formatMoney(stats.total_geral) }}</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded border-l-4 border-green-500">
+                        <h3 class="text-sm text-gray-500">Média por Lançamento</h3>
+                        <p class="text-2xl font-bold">R$ {{ formatMoney(stats.media_lancamento) }}</p>
+                    </div>
+                    <h3 class="font-bold mt-4">Top 5 Operadoras</h3>
+                    <ul class="list-disc pl-5">
+                        <li v-for="top in stats.top_5_operadoras" :key="top.razao_social">
+                            {{ top.razao_social }}: <strong>R$ {{ formatMoney(top.total) }}</strong>
+                        </li>
+                    </ul>
+                </div>
+                <div><canvas id="chartUF"></canvas></div>
+            </div>
+        </div>
+
+        <div v-if="selectedOperadora" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-2xl rounded-lg shadow-xl p-6 relative max-h-[90vh] overflow-y-auto">
+                <button @click="selectedOperadora = null" class="absolute top-4 right-4 text-gray-500 hover:text-black">✖</button>
+                <h2 class="text-xl font-bold mb-1">{{ selectedOperadora.razao_social }}</h2>
+                <p class="text-gray-500 text-sm mb-4">CNPJ: {{ selectedOperadora.cnpj }} | UF: {{ selectedOperadora.uf }}</p>
+                <h3 class="font-bold border-b pb-2 mb-2">Histórico de Despesas</h3>
+                <div v-if="loadingDetails" class="text-center">Carregando...</div>
+                <div v-else>
+                    <table class="w-full text-sm">
+                        <thead><tr class="bg-gray-100"><th class="p-2 text-left">Data</th><th class="p-2 text-right">Valor</th></tr></thead>
+                        <tbody>
+                            <tr v-for="d in operadoraDespesas" :key="d.data_referencia" class="border-b">
+                                <td class="p-2">{{ formatDate(d.data_referencia) }}</td>
+                                <td class="p-2 text-right">R$ {{ formatMoney(d.valor_despesa) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

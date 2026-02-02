@@ -1,0 +1,125 @@
+{
+	"info": {
+		"_postman_id": "b53f6c8d-1234-4567-890a-bcdef1234567",
+		"name": "Teste Intu - Despesas API",
+		"description": "Coleção de rotas para o teste técnico da Intu (Etapa 4).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Listar Operadoras (Paginado)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/operadoras?page=1&limit=10&search=",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"operadoras"
+					],
+					"query": [
+						{
+							"key": "page",
+							"value": "1",
+							"description": "Número da página"
+						},
+						{
+							"key": "limit",
+							"value": "10",
+							"description": "Itens por página"
+						},
+						{
+							"key": "search",
+							"value": "",
+							"description": "Busca por Nome ou CNPJ"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "2. Detalhes da Operadora",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/operadoras/{{cnpj_valido}}",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"operadoras",
+						"{{cnpj_valido}}"
+					]
+				},
+				"description": "Substitua {{cnpj_valido}} por um CNPJ existente no banco."
+			}
+		},
+		{
+			"name": "3. Histórico de Despesas",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/operadoras/{{cnpj_valido}}/despesas",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"operadoras",
+						"{{cnpj_valido}}",
+						"despesas"
+					]
+				}
+			}
+		},
+		{
+			"name": "4. Estatísticas Gerais",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/estatisticas",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"estatisticas"
+					]
+				}
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "cnpj_valido",
+			"value": "SEU_CNPJ_AQUI"
+		}
+	]
+}

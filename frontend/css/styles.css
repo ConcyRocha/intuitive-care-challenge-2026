@@ -1,0 +1,8 @@
+/* Evita o "flicker" do Vue antes de carregar */
+[v-cloak] {
+    display: none;
+}
+
+body {
+    background-color: #f3f4f6;
+}
